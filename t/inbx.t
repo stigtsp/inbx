@@ -100,6 +100,7 @@ is($tx->res->code, 200, 'GET /inbx/view with auth works');
 like($tx->res->body, qr/first entry/, 'view includes stored entry');
 like($tx->res->body, qr/\Q$token\E/, 'view includes current token');
 like($tx->res->body, qr/X-Inbx-Token: \Q$token\E/, 'view includes tokenized curl example');
+like($tx->res->body, qr/\Qinbx:$token\E/, 'view includes token-based basic auth curl example');
 like($tx->res->body, qr{http://localhost/inbx}, 'view curl example includes hostname');
 
 $tx = req(
@@ -112,6 +113,10 @@ $tx = req(
 );
 is($tx->res->code, 200, 'view works with forwarded host/proto');
 like($tx->res->body, qr{https://inbx\.example\.test/inbx}, 'view derives curl URL from request host/proto');
+
+my $post_basic = 'Basic ' . encode_base64("inbx:$token", '');
+$tx = req('POST', '/inbx', {Authorization => $post_basic, 'Content-Type' => 'text/plain'}, "posted with basic auth\n");
+is($tx->res->code, 201, 'POST /inbx accepts token-based Basic Auth when token is set');
 
 $tx = req('POST', '/inbx/token/unset', {Authorization => $auth, 'Content-Type' => 'application/x-www-form-urlencoded'}, '');
 is($tx->res->code, 403, 'token unset without CSRF is rejected');
@@ -165,6 +170,7 @@ is($tx->res->code, 200, 'view still works after token unset');
 like($tx->res->body, qr/\(unset\)/, 'view shows token unset state');
 like($tx->res->body, qr/curl -sS -X POST --data-binary \@\/tmp\/some-info/, 'view curl example switches to tokenless form');
 like($tx->res->body, qr{http://localhost/inbx}, 'tokenless curl example keeps hostname');
+unlike($tx->res->body, qr/token as credential/, 'basic auth token hint hidden when token is unset');
 unlike($tx->res->body, qr/X-Inbx-Token:/, 'view curl example omits token header when unset');
 
 done_testing;

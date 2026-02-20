@@ -191,8 +191,8 @@ helper trim_entries => sub ($c) {
 get '/inbx' => sub ($c) {
   my $token = $c->post_token;
   my $msg   = length($token)
-    ? "POST plain text to /inbx (max 1MB) with X-Inbx-Token header. View at /inbx/view.\n"
-    : "POST plain text to /inbx (max 1MB). View at /inbx/view with Basic Auth.\n";
+    ? "POST plain text to /inbx (max 1MB) with X-Inbx-Token or Basic Auth. View at /inbx/view.\n"
+    : "POST plain text to /inbx (max 1MB). Basic Auth is also accepted. View at /inbx/view.\n";
 
   $c->render(
     text => $msg
@@ -201,11 +201,29 @@ get '/inbx' => sub ($c) {
 
 post '/inbx' => sub ($c) {
   my $token = $c->post_token;
+  my $token_ok = 0;
+  my $basic_token_ok = 0;
   if (length $token) {
     my $got = $c->req->headers->header('X-Inbx-Token') // '';
-    if (!length($got) || $got ne $token) {
-      return $c->render(text => "Missing or invalid X-Inbx-Token\n", status => 401);
+    $token_ok = (length($got) && $got eq $token) ? 1 : 0;
+
+    my $auth = $c->req->headers->authorization // '';
+    if ($auth =~ /^Basic\s+(.+)$/i) {
+      my $decoded = eval { decode_base64($1) } // '';
+      if (defined $decoded && length $decoded) {
+        my ($user, $pass) = split /:/, $decoded, 2;
+        $user //= '';
+        $pass //= '';
+        $basic_token_ok = (($user eq $token) || ($pass eq $token)) ? 1 : 0;
+      }
     }
+  }
+
+  if (length($token) && !$token_ok && !$basic_token_ok) {
+    return $c->render(
+      text   => "Missing or invalid X-Inbx-Token (or use Basic Auth with token)\n",
+      status => 401,
+    );
   }
 
   my $body = $c->req->body // '';
@@ -285,6 +303,9 @@ get '/inbx/view' => sub ($c) {
   my $curl_cmd = length($token)
     ? qq{curl -sS -X POST -H "X-Inbx-Token: $token" --data-binary @/tmp/some-info "$post_url"}
     : qq{curl -sS -X POST --data-binary @/tmp/some-info "$post_url"};
+  my $curl_cmd_basic = length($token)
+    ? qq{curl -sS -u "inbx:$token" -X POST --data-binary @/tmp/some-info "$post_url"}
+    : '';
 
   my $entries = $c->list_entries;
   my @items;
@@ -345,6 +366,10 @@ get '/inbx/view' => sub ($c) {
     </div>
     <div>Example curl:</div>
     <code><%= $curl_cmd %></code>
+    % if (length $curl_cmd_basic) {
+    <div style="margin-top:0.4rem">Basic Auth alternative (token as credential):</div>
+    <code><%= $curl_cmd_basic %></code>
+    % }
   </div>
   % for my $item (@$items) {
     <div class="meta"><%= $item->{name} %> | <%= $item->{mtime} %></div>
@@ -354,7 +379,13 @@ get '/inbx/view' => sub ($c) {
 </html>
 HTML
 
-  $c->render(inline => $html, items => \@items, token => $token, curl_cmd => $curl_cmd);
+  $c->render(
+    inline => $html,
+    items  => \@items,
+    token  => $token,
+    curl_cmd => $curl_cmd,
+    curl_cmd_basic => $curl_cmd_basic,
+  );
 };
 
 app->start;

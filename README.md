@@ -112,10 +112,22 @@ curl -sS -X POST \
   http://localhost/inbx
 ```
 
+Manual example with Basic Auth using token:
+
+```bash
+curl -sS -u "inbx:<token>" -X POST --data-binary @/tmp/some-info http://localhost/inbx
+```
+
 Manual example when token is unset:
 
 ```bash
 curl -sS -X POST --data-binary @/tmp/some-info http://localhost/inbx
+```
+
+Pipe stdin (for example `dmesg`) to inbox:
+
+```bash
+dmesg | curl -sS -X POST -H "X-Inbx-Token: <token>" --data-binary @- http://localhost/inbx
 ```
 
 Read entries:
