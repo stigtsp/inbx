@@ -39,10 +39,9 @@ sudo chmod 0755 /opt/inbx/inbx.pl
 sudo cp inbx.env.example /etc/default/inbx
 sudoedit /etc/default/inbx
 
-sudo cp inbx.socket /etc/systemd/system/inbx.socket
 sudo cp inbx.service /etc/systemd/system/inbx.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now inbx.socket
+sudo systemctl enable --now inbx.service
 ```
 
 Or run the deploy script (safe to rerun for redeploys):
@@ -54,9 +53,7 @@ sudo ./scripts/deploy.sh
 ## systemd notes
 
 - Uses `DynamicUser=yes`.
-- Uses systemd socket activation (`inbx.socket` + `inbx.service`).
-- Listens on UNIX socket `/run/inbx.sock` (no TCP listener).
-- Socket permissions are set for NGINX via `SocketGroup=www-data` and `SocketMode=0660`.
+- Listens on UNIX socket `/run/inbx/inbx.sock` (no TCP listener).
 - Uses `StateDirectory=inbx`.
 - Unit sets `INBX_STORAGE_PATH=%S/inbx` automatically.
 - Includes sandboxing/hardening options.
@@ -89,7 +86,7 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_http_version 1.1;
-        proxy_pass http://unix:/run/inbx.sock:;
+        proxy_pass http://unix:/run/inbx/inbx.sock:;
     }
 }
 ```
