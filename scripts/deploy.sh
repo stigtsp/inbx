@@ -65,13 +65,9 @@ else
   echo "Installed new $ENV_FILE"
 fi
 
-if grep -Eq '^[[:space:]]*MOJO_LISTEN=' "$ENV_FILE"; then
-  sed -i -E 's|^[[:space:]]*MOJO_LISTEN=.*$|MOJO_LISTEN=http+unix://%2Frun%2Finbx%2Finbx.sock|' "$ENV_FILE"
-  echo "Updated MOJO_LISTEN in $ENV_FILE for unix socket mode"
-else
-  printf '\nMOJO_LISTEN=http+unix://%%2Frun%%2Finbx%%2Finbx.sock\n' >> "$ENV_FILE"
-  echo "Added MOJO_LISTEN to $ENV_FILE for unix socket mode"
-fi
+# Keep MOJO_LISTEN defined in the unit file; remove env-file overrides to
+# avoid systemd/specifier and stale-value issues.
+sed -i -E '/^[[:space:]]*MOJO_LISTEN=/d' "$ENV_FILE"
 
 install -d -m 0755 /etc/nginx/conf.d
 cat > "$NGINX_CONF" <<NGINX

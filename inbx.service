@@ -14,7 +14,7 @@ StateDirectoryMode=0700
 UMask=0007
 WorkingDirectory=/opt/inbx
 Environment=INBX_STORAGE_PATH=%S/inbx
-Environment=MOJO_LISTEN=http+unix://%2Frun%2Finbx%2Finbx.sock
+Environment=MOJO_LISTEN=http+unix://%%2Frun%%2Finbx%%2Finbx.sock
 EnvironmentFile=-/etc/default/inbx
 ExecStart=/usr/bin/hypnotoad -f /opt/inbx/inbx.pl
 Restart=on-failure
