@@ -13,8 +13,7 @@ APP_DIR="/opt/inbx"
 SYSTEMD_DIR="/etc/systemd/system"
 ENV_FILE="/etc/default/inbx"
 SERVICE_UNIT="inbx.service"
-NGINX_AVAILABLE="/etc/nginx/sites-available/inbx.conf"
-NGINX_ENABLED="/etc/nginx/sites-enabled/inbx.conf"
+NGINX_CONF="/etc/nginx/conf.d/inbx.conf"
 SOCKET_PATH="/run/inbx/inbx.sock"
 SERVER_NAME="${INBX_SERVER_NAME:-_}"
 
@@ -74,8 +73,8 @@ else
   echo "Added MOJO_LISTEN to $ENV_FILE for unix socket mode"
 fi
 
-install -d -m 0755 /etc/nginx/sites-available /etc/nginx/sites-enabled
-cat > "$NGINX_AVAILABLE" <<NGINX
+install -d -m 0755 /etc/nginx/conf.d
+cat > "$NGINX_CONF" <<NGINX
 server {
     listen 80;
     server_name ${SERVER_NAME};
@@ -93,8 +92,6 @@ server {
 }
 NGINX
 
-ln -sfn "$NGINX_AVAILABLE" "$NGINX_ENABLED"
-
 systemctl daemon-reload
 
 # Disable and remove old socket-activation unit if present.
@@ -109,8 +106,24 @@ nginx -t
 systemctl reload nginx
 
 if command -v curl >/dev/null 2>&1; then
-  curl --silent --show-error --fail --unix-socket "$SOCKET_PATH" http://localhost/inbx >/dev/null
-  echo "Health check passed via $SOCKET_PATH"
+  ok=0
+  for _ in $(seq 1 30); do
+    if [[ -S "$SOCKET_PATH" ]] && curl --silent --show-error --fail --unix-socket "$SOCKET_PATH" http://localhost/inbx >/dev/null; then
+      ok=1
+      break
+    fi
+    sleep 0.2
+  done
+
+  if [[ "$ok" -eq 1 ]]; then
+    echo "Health check passed via $SOCKET_PATH"
+  else
+    echo "Health check failed via $SOCKET_PATH" >&2
+    ls -l "$SOCKET_PATH" 2>/dev/null || true
+    systemctl --no-pager --full status "$SERVICE_UNIT" || true
+    journalctl -u "$SERVICE_UNIT" -n 80 --no-pager || true
+    exit 1
+  fi
 else
   echo "curl not found; skipping health check"
 fi

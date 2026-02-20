@@ -50,6 +50,8 @@ Or run the deploy script (safe to rerun for redeploys):
 sudo ./scripts/deploy.sh
 ```
 
+`deploy.sh` writes NGINX config to `/etc/nginx/conf.d/inbx.conf`.
+
 ## systemd notes
 
 - Uses `DynamicUser=yes`.
