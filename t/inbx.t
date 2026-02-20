@@ -25,7 +25,8 @@ sub req ($method, $path, $headers = {}, $body = '') {
   my $tx = Mojo::Transaction::HTTP->new;
   $tx->req->method($method);
   $tx->req->url->parse($path);
-  $tx->req->headers->from_hash($headers);
+  my %req_headers = (Host => 'localhost', %$headers);
+  $tx->req->headers->from_hash(\%req_headers);
   if (length $body) {
     $tx->req->body($body);
     $tx->req->headers->content_length(length $body)
@@ -99,6 +100,18 @@ is($tx->res->code, 200, 'GET /inbx/view with auth works');
 like($tx->res->body, qr/first entry/, 'view includes stored entry');
 like($tx->res->body, qr/\Q$token\E/, 'view includes current token');
 like($tx->res->body, qr/X-Inbx-Token: \Q$token\E/, 'view includes tokenized curl example');
+like($tx->res->body, qr{http://localhost/inbx}, 'view curl example includes hostname');
+
+$tx = req(
+  'GET', '/inbx/view',
+  {
+    Authorization      => $auth,
+    Host               => 'inbx.example.test',
+    'X-Forwarded-Proto' => 'https',
+  },
+);
+is($tx->res->code, 200, 'view works with forwarded host/proto');
+like($tx->res->body, qr{https://inbx\.example\.test/inbx}, 'view derives curl URL from request host/proto');
 
 $tx = req('POST', '/inbx/token/unset', {Authorization => $auth, 'Content-Type' => 'application/x-www-form-urlencoded'}, '');
 is($tx->res->code, 403, 'token unset without CSRF is rejected');
@@ -151,6 +164,7 @@ $tx = req('GET', '/inbx/view', {Authorization => $auth});
 is($tx->res->code, 200, 'view still works after token unset');
 like($tx->res->body, qr/\(unset\)/, 'view shows token unset state');
 like($tx->res->body, qr/curl -sS -X POST --data-binary \@\/tmp\/some-info/, 'view curl example switches to tokenless form');
+like($tx->res->body, qr{http://localhost/inbx}, 'tokenless curl example keeps hostname');
 unlike($tx->res->body, qr/X-Inbx-Token:/, 'view curl example omits token header when unset');
 
 done_testing;

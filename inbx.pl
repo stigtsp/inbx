@@ -2,24 +2,35 @@
 use v5.36;
 
 use Mojolicious::Lite -signatures;
+use Crypt::PBKDF2;
 use Digest::SHA qw(sha256_hex);
 use File::Path qw(make_path);
 use MIME::Base64 qw(decode_base64);
-use Mojo::JSON qw(encode_json);
+use Mojo::JSON qw(encode_json decode_json);
 use Mojo::Util qw(steady_time);
 use POSIX qw(strftime);
 
 my $storage_dir = $ENV{INBX_STORAGE_PATH} || '/tmp/inbx';
 my $max_entries = $ENV{INBX_MAX_ENTRIES}  || 100;
 my $auth_user   = $ENV{INBX_USER}         || 'inbx';
-my $auth_pass   = $ENV{INBX_PASS}         || 'inbx';
+my $auth_pass_hash = '';
+my $entry_name_re = qr/^\d{8}-\d{6}-\d+-\d+\.txt$/;
+
+die "INBX_STORAGE_PATH must not be '/'\n" if $storage_dir eq '/';
 
 app->max_request_size(1_048_576);
 app->secrets([$ENV{INBX_SECRET} || 'inbx-dev-secret']);
 
 make_path($storage_dir) unless -d $storage_dir;
 
-my $token_file = "$storage_dir/.post_token";
+my $token_file     = "$storage_dir/.post_token";
+my $auth_meta_file = "$storage_dir/.view_auth.meta.json";
+my $pbkdf2         = Crypt::PBKDF2->new(
+  hash_class => 'HMACSHA2',
+  hash_args  => {sha_size => 256},
+  iterations => 120_000,
+  salt_len   => 16,
+);
 
 sub random_token {
   my $bytes = '';
@@ -57,6 +68,24 @@ sub read_token {
   return $token;
 }
 
+sub write_auth_meta ($meta) {
+  return 0 unless open my $fh, '>:raw', $auth_meta_file;
+  print {$fh} encode_json($meta) . "\n";
+  close $fh;
+  chmod 0600, $auth_meta_file;
+  return 1;
+}
+
+sub read_auth_meta {
+  return undef unless -f $auth_meta_file;
+  return undef unless open my $fh, '<:raw', $auth_meta_file;
+  my $raw = do { local $/; <$fh> // '' };
+  close $fh;
+  my $meta = eval { decode_json($raw) };
+  return undef unless ref $meta eq 'HASH';
+  return $meta;
+}
+
 sub submitter_ip ($c) {
   my $xff = $c->req->headers->header('X-Forwarded-For') // '';
   if (length $xff) {
@@ -83,6 +112,27 @@ if (exists $ENV{INBX_POST_TOKEN}) {
   }
 }
 
+if (defined($ENV{INBX_PASS}) && length($ENV{INBX_PASS})) {
+  $auth_pass_hash = $pbkdf2->generate($ENV{INBX_PASS});
+} else {
+  my $meta = read_auth_meta();
+  if ($meta && ($meta->{user} // '') eq $auth_user && length($meta->{pass_hash} // '')) {
+    $auth_pass_hash = $meta->{pass_hash};
+  } else {
+    my $generated_pass = random_token();
+    $auth_pass_hash = $pbkdf2->generate($generated_pass);
+    my $meta_out = {
+      user         => $auth_user,
+      pass_hash    => $auth_pass_hash,
+      hash_scheme  => 'PBKDF2-HMAC-SHA256',
+      generated_at => strftime('%Y-%m-%dT%H:%M:%SZ', gmtime),
+    };
+    die "Failed to persist generated viewer password hash\n"
+      unless write_auth_meta($meta_out);
+    app->log->warn("INBX_PASS was not set. Generated viewer password for '$auth_user': $generated_pass");
+  }
+}
+
 helper is_authed => sub ($c) {
   my $header = $c->req->headers->authorization // '';
   return 0 unless $header =~ /^Basic\s+(.+)$/i;
@@ -92,7 +142,9 @@ helper is_authed => sub ($c) {
 
   my ($user, $pass) = split /:/, $decoded, 2;
   return 0 unless defined $user && defined $pass;
-  return $user eq $auth_user && $pass eq $auth_pass;
+  return 0 unless $user eq $auth_user;
+  my $ok = eval { $pbkdf2->validate($auth_pass_hash, $pass) } // 0;
+  return $ok ? 1 : 0;
 };
 
 helper require_auth => sub ($c, $realm = 'inbx') {
@@ -115,7 +167,7 @@ helper set_post_token => sub ($c, $token) {
 
 helper list_entries => sub ($c) {
   opendir(my $dh, $storage_dir) or return [];
-  my @entries = grep { /\.txt$/ && -f "$storage_dir/$_" } readdir($dh);
+  my @entries = grep { /$entry_name_re/ && -f "$storage_dir/$_" } readdir($dh);
   closedir $dh;
 
   @entries = sort {
@@ -129,6 +181,7 @@ helper trim_entries => sub ($c) {
   return if @$entries <= $max_entries;
 
   for my $old (@$entries[$max_entries .. $#$entries]) {
+    next unless $old =~ /$entry_name_re/;
     unlink "$storage_dir/$old";
     unlink "$storage_dir/$old.meta.json";
     unlink "$storage_dir/$old.meta";
@@ -222,7 +275,13 @@ get '/inbx/view' => sub ($c) {
   return unless $c->require_auth('inbx-view');
 
   my $token = $c->post_token;
-  my $post_url = $c->url_for('/inbx')->to_abs->to_string;
+  my $host = $c->req->headers->header('X-Forwarded-Host')
+    // $c->req->headers->host
+    // 'localhost';
+  my $proto = $c->req->headers->header('X-Forwarded-Proto')
+    // $c->req->url->base->scheme
+    // 'http';
+  my $post_url = "$proto://$host" . $c->url_for('/inbx')->to_string;
   my $curl_cmd = length($token)
     ? qq{curl -sS -X POST -H "X-Inbx-Token: $token" --data-binary @/tmp/some-info "$post_url"}
     : qq{curl -sS -X POST --data-binary @/tmp/some-info "$post_url"};

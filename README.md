@@ -8,6 +8,7 @@ Small Mojolicious inbox service.
 - Each entry gets a companion metadata file `<entry>.txt.meta.json`.
 - `GET /inbx/view` shows entries (newest first) in plain text.
 - Viewer uses HTTP Basic Auth (`INBX_USER` / `INBX_PASS`).
+- If `INBX_PASS` is unset, a random viewer password is generated on first start.
 - Post token is required when set (`X-Inbx-Token` header).
 - Post token is auto-generated on first start and shown in `/inbx/view`.
 - Token can be rotated or unset from `/inbx/view`.
@@ -25,7 +26,7 @@ Metadata JSON fields:
 
 ```bash
 sudo apt update
-sudo apt install -y libmojolicious-perl nginx
+sudo apt install -y libmojolicious-perl libcrypt-pbkdf2-perl nginx
 ```
 
 ## Install files
@@ -44,6 +45,12 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now inbx.socket
 ```
 
+Or run the deploy script (safe to rerun for redeploys):
+
+```bash
+sudo ./scripts/deploy.sh
+```
+
 ## systemd notes
 
 - Uses `DynamicUser=yes`.
@@ -53,6 +60,11 @@ sudo systemctl enable --now inbx.socket
 - Uses `StateDirectory=inbx`.
 - Unit sets `INBX_STORAGE_PATH=%S/inbx` automatically.
 - Includes sandboxing/hardening options.
+- If `INBX_PASS` is unset, find generated viewer password with:
+
+```bash
+sudo journalctl -u inbx.service -b --no-pager | grep 'Generated viewer password'
+```
 
 If hardening blocks something, override with:
 
