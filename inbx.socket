@@ -1,0 +1,12 @@
+[Unit]
+Description=inbx socket
+
+[Socket]
+ListenStream=/run/inbx.sock
+SocketMode=0660
+SocketGroup=www-data
+RemoveOnStop=true
+Service=inbx.service
+
+[Install]
+WantedBy=sockets.target

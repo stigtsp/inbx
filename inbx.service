@@ -1,0 +1,40 @@
+[Unit]
+Description=inbx Mojolicious inbox
+After=network.target inbx.socket
+Requires=inbx.socket
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=inbx
+StateDirectoryMode=0700
+UMask=0077
+WorkingDirectory=/opt/inbx
+Environment=INBX_STORAGE_PATH=%S/inbx
+Environment=MOJO_LISTEN=http://127.0.0.1?fd=3
+EnvironmentFile=-/etc/default/inbx
+ExecStart=/usr/bin/hypnotoad -f /opt/inbx/inbx.pl
+Restart=on-failure
+RestartSec=2
+
+# Sandboxing / hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+SystemCallFilter=@system-service
